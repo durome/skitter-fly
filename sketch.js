@@ -61,32 +61,61 @@ function setup() {
   createCanvas(windowWidth, windowHeight, WEBGL);
   colorMode(HSB, 360, 255, 255, 255);
 
-  // ⚠️ Important: userStartAudio() must be triggered by interaction on mobile.
-  // We'll call it here but also ensure it runs on pointer/key action.
-  userStartAudio();
-
+  // ⚠️ No arrancamos audio aquí en móvil, solo preparamos sistema
   filterLP = new p5.LowPass();
   filterLP.freq(1400);
 
   reverb = new p5.Reverb();
   reverb.process(filterLP, 8.2, 0.78);
 
-  // Seed cathedral space
-  for (let i = 0; i < 10; i++) {
-    cells.push(new GlassCell(random(-340, 340), random(-220, 220), random(-340, 340)));
-  }
+  // Seed inicial
+  for (let i = 0; i < 10; i++) cells.push(new GlassCell(random(-340, 340), random(-220, 220), random(-340, 340)));
   for (let i = 0; i < 18; i++) addRandomLink();
 
   // MIDI
   if (navigator.requestMIDIAccess) {
     navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
-  } else {
-    console.log("⚠️ WebMIDI not supported. Fallback keyboard/touch enabled.");
   }
 
-  // Fallback input always available
-  attachUniversalPointerEvents();
+  // ✅ START: botón overlay (click + touch)
+  const btn = document.getElementById("startBtn");
+  if (btn) {
+    btn.addEventListener("pointerdown", startSystem, { passive: true });
+    btn.addEventListener("click", startSystem, { passive: true });
+  }
+
+  // ✅ START: si el usuario toca la pantalla también arranca
+  window.addEventListener("pointerdown", () => {
+    if (!started) startSystem();
+  }, { passive: true });
+
+  setStatus("Tap to start audio…");
 }
+
+// =====================================================
+// STARTSYSTEM
+// =====================================================
+
+async function startSystem() {
+  if (started) return;
+
+  try {
+    await userStartAudio();
+    started = true;
+
+    // Ocultar overlay al 100%
+    const ov = document.getElementById("overlay");
+    if (ov) ov.style.display = "none";
+
+    setStatus("✅ Audio active. Play!");
+    console.log("✅ Audio started");
+
+  } catch (e) {
+    console.warn("Audio blocked:", e);
+    setStatus("⚠️ Tap again to activate audio.");
+  }
+}
+
 
 // =====================================================
 // MIDI
@@ -113,6 +142,19 @@ function handleMIDI(msg) {
   // NoteOn
   if (cmd === 144 && vel > 0) {
     cathedralImpulse(note, vel);
+  }
+}
+function handleMIDI(msg) {
+  if (!started) return; // ✅ importante
+
+  const [cmd, note, vel] = msg.data;
+  const isNoteOn = cmd === 144 && vel > 0;
+  const isNoteOff = cmd === 128 || (cmd === 144 && vel === 0);
+
+  if (isNoteOn) cathedralImpulse(note, vel);
+
+  if (isNoteOff) {
+    globalEnergy *= 0.92; // apaga un poco al soltar
   }
 }
 
@@ -196,6 +238,70 @@ function activateAudioIfNeeded() {
   if (audioReady) return;
   userStartAudio();
   audioReady = true;
+}
+function noteFromTouch(x) {
+  // map horizontal screen to notes
+  const n = floor(map(x, 0, width, TOUCH_BASE_NOTE, TOUCH_BASE_NOTE + TOUCH_RANGE));
+  return constrain(n, 36, 96);
+}
+
+function touchStarted() {
+  if (!started) startSystem();
+
+  // multitouch => varios acordes
+  for (let t of touches) {
+    const id = t.id ?? `${t.x}_${t.y}`;
+    if (!activeTouches.has(id)) {
+      const note = noteFromTouch(t.x);
+      activeTouches.set(id, note);
+      cathedralImpulse(note, 90); // velocity fija (puedes refinar)
+    }
+  }
+
+  lastTouchX = (touches[0] ? touches[0].x : null);
+  return false;
+}
+
+function touchMoved() {
+  if (!started) return false;
+
+  // Drag => glide/pitch bend simulado cambiando notas según desplazamiento
+  if (touches.length > 0 && lastTouchX !== null) {
+    const dx = touches[0].x - lastTouchX;
+    if (abs(dx) > 10) {
+      const note = noteFromTouch(touches[0].x);
+      cathedralImpulse(note, 80);
+      lastTouchX = touches[0].x;
+    }
+  }
+  return false;
+}
+
+function touchEnded() {
+  // En este sistema sonoro por osciladores rápidos, no hace falta NOTE OFF real.
+  // Si quieres más apagado, puedes reducir globalEnergy aquí.
+  activeTouches.clear();
+  lastTouchX = null;
+  return false;
+}
+const keyMap = {
+  "a": 60, "s": 62, "d": 64, "f": 65, "g": 67, "h": 69, "j": 71, "k": 72, "l": 74,
+  "q": 48, "w": 50, "e": 52, "r": 53, "t": 55, "y": 57, "u": 59, "i": 60, "o": 62, "p": 64
+};
+
+function keyPressed() {
+  if (!started) startSystem();
+
+  const k = key.toLowerCase();
+  if (keyMap[k] !== undefined && !keyboardHeld.has(k)) {
+    keyboardHeld.add(k);
+    cathedralImpulse(keyMap[k], 95);
+  }
+}
+
+function keyReleased() {
+  const k = key.toLowerCase();
+  keyboardHeld.delete(k);
 }
 
 // =====================================================
@@ -618,4 +724,5 @@ function edgeGlowSphere(size, inner) {
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
+
 
