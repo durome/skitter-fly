@@ -4,6 +4,16 @@
 // Experimental generative art system (non-medical)
 // + FALLBACK INPUT: Keyboard letters + Touch + Mouse (no MIDI needed)
 
+let started = false;
+let activeTouches = new Map(); // id -> note
+let keyboardHeld = new Set();
+let lastTouchX = null;
+
+// rango base de notas para touch/teclado
+const TOUCH_BASE_NOTE = 60; // C4
+const TOUCH_RANGE = 24;     // 2 octavas
+
+
 let midiAccess;
 let midiAvailable = false;
 
@@ -608,3 +618,4 @@ function edgeGlowSphere(size, inner) {
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
+
