@@ -1,21 +1,14 @@
-// NeuroSynaptic Glass IV – Jazz Cathedral
+// NeuroSynaptic Glass IV – Jazz Cathedral (Definitive Multi-Device Edition)
 // Eduardo Romaguera / Durome (2026)
-// MIDI → stained-glass polyhedra + AI jazz response + cathedral beams (3D)
-// Experimental generative art system (non-medical)
-// + FALLBACK INPUT: Keyboard letters + Touch + Mouse (no MIDI needed)
+// ✅ MIDI + Keyboard + Mouse + Touch (MultiTouch chords + Drag glide)
+// ✅ Overlay disappears ALWAYS
+// ✅ Mobile WebGL fixes (pixelDensity + safe lights + no orbitControl)
+// ✅ Always visible geometry + strong saturated color
 
-let started = false;
-let activeTouches = new Map(); // id -> note
-let keyboardHeld = new Set();
-let lastTouchX = null;
+let midiAccess = null;
+let midiConnected = false;
 
-// rango base de notas para touch/teclado
-const TOUCH_BASE_NOTE = 60; // C4
-const TOUCH_RANGE = 24;     // 2 octavas
-
-
-let midiAccess;
-let midiAvailable = false;
+let started = false; // audio + interaction unlocked
 
 let cells = [];
 let links = [];
@@ -23,6 +16,7 @@ let particles = [];
 
 const MAX_CELLS = 90;
 const MAX_LINKS = 260;
+const MAX_PARTICLES = 1500;
 
 const SHAPE_TYPES = ["regular", "star", "hybrid"];
 const FORMS = ["poly", "cube", "pyramid", "sphere"];
@@ -31,264 +25,127 @@ let mood = "calm";
 let lastMoodChange = 0;
 let globalEnergy = 0;
 
-// ---------- SOUND (poly-like) ----------
+// SOUND
 let filterLP, reverb;
 let voices = [];
-const MAX_VOICES = 12;
+const MAX_VOICES = 10;
 
-// ---------- FALLBACK INPUT ----------
-let audioReady = false;
+// Touch & keyboard states
+let activeTouches = new Map(); // id -> note
+let lastPrimaryTouchX = null;
 
-// keyboard mapping -> MIDI notes
-const keyboardMap = {
-  // lower row = left hand vibe
-  "a": 48, "s": 50, "d": 52, "f": 53, "g": 55, "h": 57, "j": 59,
-  // middle row = right hand
-  "k": 60, "l": 62,
-  // upper row = melodic
-  "q": 60, "w": 62, "e": 64, "r": 65, "t": 67, "y": 69, "u": 71,
-  "i": 72, "o": 74, "p": 76
+const TOUCH_BASE_NOTE = 48; // C3
+const TOUCH_RANGE = 36;     // 3 octaves
+
+// Keyboard mapping (two rows)
+const keyMap = {
+  "a": 48, "s": 50, "d": 52, "f": 53, "g": 55, "h": 57, "j": 59, "k": 60, "l": 62,
+  "q": 60, "w": 62, "e": 64, "r": 65, "t": 67, "y": 69, "u": 71, "i": 72, "o": 74, "p": 76,
 };
+let keyboardHeld = new Set();
 
-let pressedKeys = {};        // prevent repeats
-let pointerIdToNote = {};    // keep note per finger/click
-const randomNotesPool = [36,38,40,43,45,48,50,52,55,57,60,62,64,67,69,71,72,74,76,79];
+// ---------------- UI Helpers ----------------
+function setStatus(msg) {
+  const el = document.getElementById("status");
+  if (el) el.textContent = msg;
+}
 
-// =====================================================
-// SETUP
-// =====================================================
+function hideOverlay() {
+  const ov = document.getElementById("overlay");
+  if (ov) ov.style.display = "none";
+}
+
+// ---------------- Start System (Mobile-safe) ----------------
+async function startSystem() {
+  if (started) return;
+
+  try {
+    await userStartAudio(); // ✅ MUST be inside user gesture
+    started = true;
+    hideOverlay();
+    setStatus("✅ Audio active.");
+  } catch (e) {
+    console.warn("Audio blocked:", e);
+    setStatus("⚠️ Tap again to activate audio.");
+    return;
+  }
+}
+
+// ---------------- p5 Setup ----------------
 function setup() {
+  // ✅ Mobile WebGL stability
+  pixelDensity(1);
+
   createCanvas(windowWidth, windowHeight, WEBGL);
   colorMode(HSB, 360, 255, 255, 255);
+  noStroke();
 
-  // ⚠️ No arrancamos audio aquí en móvil, solo preparamos sistema
+  // SOUND CHAIN
   filterLP = new p5.LowPass();
-  filterLP.freq(1400);
+  filterLP.freq(1700);
+  filterLP.res(9);
 
   reverb = new p5.Reverb();
-  reverb.process(filterLP, 8.2, 0.78);
+  reverb.process(filterLP, 7.2, 0.78);
 
-  // Seed inicial
-  for (let i = 0; i < 10; i++) cells.push(new GlassCell(random(-340, 340), random(-220, 220), random(-340, 340)));
-  for (let i = 0; i < 18; i++) addRandomLink();
+  // Seed geometry
+  for (let i = 0; i < 12; i++) {
+    cells.push(new GlassCell(random(-340, 340), random(-220, 220), random(-340, 340)));
+  }
+  for (let i = 0; i < 20; i++) addRandomLink();
 
   // MIDI
   if (navigator.requestMIDIAccess) {
     navigator.requestMIDIAccess().then(onMIDISuccess, onMIDIFailure);
   }
 
-  // ✅ START: botón overlay (click + touch)
+  // ✅ Button starts system (pointerdown works best on mobile)
   const btn = document.getElementById("startBtn");
   if (btn) {
-    btn.addEventListener("pointerdown", startSystem, { passive: true });
-    btn.addEventListener("click", startSystem, { passive: true });
+    btn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      startSystem();
+    }, { passive: false });
+
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      startSystem();
+    }, { passive: false });
   }
 
-  // ✅ START: si el usuario toca la pantalla también arranca
-  window.addEventListener("pointerdown", () => {
+  // ✅ Also allow ANY tap/click to start (mobile convenience)
+  window.addEventListener("pointerdown", (e) => {
     if (!started) startSystem();
   }, { passive: true });
 
-  setStatus("Tap to start audio…");
+  setStatus("Tap Start to activate audio.");
 }
 
-// =====================================================
-// STARTSYSTEM
-// =====================================================
-
-async function startSystem() {
-  if (started) return;
-
-  try {
-    await userStartAudio();
-    started = true;
-
-    // Ocultar overlay al 100%
-    const ov = document.getElementById("overlay");
-    if (ov) ov.style.display = "none";
-
-    setStatus("✅ Audio active. Play!");
-    console.log("✅ Audio started");
-
-  } catch (e) {
-    console.warn("Audio blocked:", e);
-    setStatus("⚠️ Tap again to activate audio.");
-  }
-}
-
-
-// =====================================================
-// MIDI
-// =====================================================
+// ---------------- MIDI ----------------
 function onMIDISuccess(midi) {
   midiAccess = midi;
-  midiAvailable = true;
-
-  Array.from(midiAccess.inputs.values()).forEach(input => {
-    input.onmidimessage = handleMIDI;
-  });
-
-  console.log("✅ MIDI Connected");
+  const inputs = Array.from(midiAccess.inputs.values());
+  inputs.forEach(input => input.onmidimessage = handleMIDI);
+  midiConnected = inputs.length > 0;
+  console.log("✅ MIDI Ready", midiConnected);
 }
 
 function onMIDIFailure() {
-  midiAvailable = false;
-  console.log("❌ MIDI Access Failed (fallback active)");
+  console.log("❌ MIDI Access Failed");
 }
 
 function handleMIDI(msg) {
-  const [cmd, note, vel] = msg.data;
-
-  // NoteOn
-  if (cmd === 144 && vel > 0) {
-    cathedralImpulse(note, vel);
-  }
-}
-function handleMIDI(msg) {
-  if (!started) return; // ✅ importante
+  if (!started) return;
 
   const [cmd, note, vel] = msg.data;
   const isNoteOn = cmd === 144 && vel > 0;
   const isNoteOff = cmd === 128 || (cmd === 144 && vel === 0);
 
   if (isNoteOn) cathedralImpulse(note, vel);
-
-  if (isNoteOff) {
-    globalEnergy *= 0.92; // apaga un poco al soltar
-  }
+  if (isNoteOff) globalEnergy *= 0.92;
 }
 
-// =====================================================
-// FALLBACK INPUT: keyboard letters
-// =====================================================
-function keyPressed() {
-  const k = key.toLowerCase();
-
-  if (!(k in keyboardMap)) return;
-  if (pressedKeys[k]) return;
-
-  pressedKeys[k] = true;
-
-  // ensure audio
-  activateAudioIfNeeded();
-
-  const note = keyboardMap[k];
-  const vel = 96; // fixed velocity for keyboard
-  cathedralImpulse(note, vel);
-}
-
-function keyReleased() {
-  const k = key.toLowerCase();
-  if (!(k in keyboardMap)) return;
-  pressedKeys[k] = false;
-
-  // (optional) if you want NoteOff behaviour later,
-  // we can add a release system here.
-}
-
-// =====================================================
-// FALLBACK INPUT: pointer (mouse + touch + pen)
-// =====================================================
-function attachUniversalPointerEvents() {
-  const c = document.querySelector("canvas");
-  if (!c) return;
-
-  // This improves Android/iOS touch behaviour
-  c.style.touchAction = "none";
-
-  c.addEventListener("pointerdown", (e) => {
-    activateAudioIfNeeded();
-
-    // choose a note based on screen X (gives structure)
-    const note = pickNoteFromPosition(e.clientX, e.clientY);
-    const vel = pickVelocityFromPosition(e.clientY);
-
-    pointerIdToNote[e.pointerId] = note;
-
-    cathedralImpulse(note, vel);
-
-    // capture pointer to detect release even if finger moves out
-    try { c.setPointerCapture(e.pointerId); } catch (_) {}
-  }, { passive: false });
-
-  c.addEventListener("pointerup", (e) => {
-    delete pointerIdToNote[e.pointerId];
-  }, { passive: false });
-
-  c.addEventListener("pointercancel", (e) => {
-    delete pointerIdToNote[e.pointerId];
-  }, { passive: false });
-}
-
-function pickNoteFromPosition(x, y) {
-  // map horizontal axis to a jazz-ish register
-  const t = constrain(x / windowWidth, 0, 1);
-  const scale = [48, 50, 52, 55, 57, 60, 62, 64, 67, 69, 72, 74, 76];
-  const idx = floor(t * (scale.length - 1));
-  return scale[idx] ?? random(randomNotesPool);
-}
-
-function pickVelocityFromPosition(y) {
-  // top = softer, bottom = stronger
-  const t = constrain(y / windowHeight, 0, 1);
-  return floor(lerp(65, 120, t));
-}
-
-function activateAudioIfNeeded() {
-  if (audioReady) return;
-  userStartAudio();
-  audioReady = true;
-}
-function noteFromTouch(x) {
-  // map horizontal screen to notes
-  const n = floor(map(x, 0, width, TOUCH_BASE_NOTE, TOUCH_BASE_NOTE + TOUCH_RANGE));
-  return constrain(n, 36, 96);
-}
-
-function touchStarted() {
-  if (!started) startSystem();
-
-  // multitouch => varios acordes
-  for (let t of touches) {
-    const id = t.id ?? `${t.x}_${t.y}`;
-    if (!activeTouches.has(id)) {
-      const note = noteFromTouch(t.x);
-      activeTouches.set(id, note);
-      cathedralImpulse(note, 90); // velocity fija (puedes refinar)
-    }
-  }
-
-  lastTouchX = (touches[0] ? touches[0].x : null);
-  return false;
-}
-
-function touchMoved() {
-  if (!started) return false;
-
-  // Drag => glide/pitch bend simulado cambiando notas según desplazamiento
-  if (touches.length > 0 && lastTouchX !== null) {
-    const dx = touches[0].x - lastTouchX;
-    if (abs(dx) > 10) {
-      const note = noteFromTouch(touches[0].x);
-      cathedralImpulse(note, 80);
-      lastTouchX = touches[0].x;
-    }
-  }
-  return false;
-}
-
-function touchEnded() {
-  // En este sistema sonoro por osciladores rápidos, no hace falta NOTE OFF real.
-  // Si quieres más apagado, puedes reducir globalEnergy aquí.
-  activeTouches.clear();
-  lastTouchX = null;
-  return false;
-}
-const keyMap = {
-  "a": 60, "s": 62, "d": 64, "f": 65, "g": 67, "h": 69, "j": 71, "k": 72, "l": 74,
-  "q": 48, "w": 50, "e": 52, "r": 53, "t": 55, "y": 57, "u": 59, "i": 60, "o": 62, "p": 64
-};
-
+// ---------------- Keyboard ----------------
 function keyPressed() {
   if (!started) startSystem();
 
@@ -304,102 +161,162 @@ function keyReleased() {
   keyboardHeld.delete(k);
 }
 
-// =====================================================
-// CORE IMPULSE
-// =====================================================
-function cathedralImpulse(note, vel) {
-  let freq = midiToFreq(note);
-  let amp = map(vel, 0, 127, 0.045, 0.22);
+// ---------------- Touch / Mouse ----------------
+function noteFromX(x) {
+  const n = floor(map(x, 0, width, TOUCH_BASE_NOTE, TOUCH_BASE_NOTE + TOUCH_RANGE));
+  return constrain(n, 30, 96);
+}
 
-  globalEnergy = min(1, globalEnergy + amp * 0.9);
+function velocityFromSpeed(dx, dy) {
+  // speed-based velocity (mobile friendly)
+  const sp = sqrt(dx*dx + dy*dy);
+  return constrain(floor(map(sp, 0, 60, 50, 120)), 45, 127);
+}
+
+function touchStarted() {
+  if (!started) startSystem();
+
+  // multitouch chords
+  for (let t of touches) {
+    const id = t.id ?? `${t.x}_${t.y}`;
+    if (!activeTouches.has(id)) {
+      const note = noteFromX(t.x);
+      activeTouches.set(id, note);
+      cathedralImpulse(note, 90);
+    }
+  }
+
+  if (touches[0]) lastPrimaryTouchX = touches[0].x;
+  return false;
+}
+
+function touchMoved() {
+  if (!started) return false;
+  if (!touches[0]) return false;
+
+  // Drag -> glide: fire new impulses smoothly
+  const x = touches[0].x;
+  const y = touches[0].y;
+
+  if (lastPrimaryTouchX !== null) {
+    const dx = x - lastPrimaryTouchX;
+    if (abs(dx) > 10) {
+      const note = noteFromX(x);
+      const vel = velocityFromSpeed(dx, 0);
+      cathedralImpulse(note, vel);
+      lastPrimaryTouchX = x;
+    }
+  }
+  return false;
+}
+
+function touchEnded() {
+  activeTouches.clear();
+  lastPrimaryTouchX = null;
+  globalEnergy *= 0.9;
+  return false;
+}
+
+// Mouse fallback = random chord hit
+function mousePressed() {
+  if (!started) startSystem();
+
+  const n = noteFromX(mouseX);
+  cathedralImpulse(n, 95);
+
+  // extra random harmonic spark
+  if (random() < 0.35) cathedralImpulse(n + random([3, 4, 7, 10, 12]), 80);
+}
+
+// ---------------- Core Engine ----------------
+function cathedralImpulse(note, vel) {
+  if (!started) return;
+
+  let freq = midiToFreq(note);
+  let amp = map(vel, 0, 127, 0.04, 0.20);
+
+  globalEnergy = min(1.4, globalEnergy + amp * 0.85);
   updateMood(freq, vel);
 
-  // USER VOICE (clear)
-  playVoice(freq, amp * 0.75, "sine", 0.01, 0.60);
+  // USER VOICE
+  playVoice(freq, amp * 0.75, "triangle", 0.01, 0.55);
 
-  // CONSTRUCT GLASS CELL
+  // Build cell
   let c = new GlassCell(random(-420, 420), random(-280, 280), random(-420, 420));
 
-  c.hue = map(note, 24, 96, 170, 350);
-  c.alpha = map(vel, 0, 127, 60, 155);
+  c.hue = (map(note, 24, 96, 180, 360) + random(-25, 25) + frameCount * 0.2) % 360;
+  c.alpha = map(vel, 0, 127, 85, 200);
 
-  c.R = map(vel, 0, 127, 35, 125);
+  c.R = map(vel, 0, 127, 40, 130);
   c.r = c.R * random(0.35, 0.85);
-  c.n = floor(map(note, 24, 96, 5, 13));
-  c.n = constrain(c.n, 5, 13);
+  c.n = constrain(floor(map(note, 24, 96, 5, 13)), 5, 13);
   c.kind = random(SHAPE_TYPES);
 
-  // register defines architectural family
   if (note < 45) c.form = "cube";
   else if (note < 62) c.form = "poly";
   else if (note < 78) c.form = "pyramid";
   else c.form = "sphere";
 
-  // add + connect
   cells.push(c);
 
-  let density = floor(map(vel, 0, 127, 1, 6));
+  // Link density
+  let density = floor(map(vel, 0, 127, 1, 5));
   for (let i = 0; i < density; i++) addLinkTo(c);
 
   emitParticles(c.pos.copy(), freq, amp);
 
-  // PRUNE
+  // prune
   if (cells.length > MAX_CELLS) cells.splice(0, 1);
-  if (links.length > MAX_LINKS) links.splice(0, 14);
+  if (links.length > MAX_LINKS) links.splice(0, 12);
 
-  // AI JAZZ ANSWER (call & response)
+  // AI response
   setTimeout(() => aiJazzAnswer(note, vel), responseDelay(vel));
 }
 
 function responseDelay(vel) {
-  return floor(map(vel, 0, 127, 240, 80));
+  return floor(map(vel, 0, 127, 220, 70));
 }
 
 function aiJazzAnswer(note, vel) {
-  // Mood-based voicings
   let voicing = chooseVoicing(note, mood);
-  let baseAmp = map(vel, 0, 127, 0.05, 0.17);
+  let baseAmp = map(vel, 0, 127, 0.045, 0.16);
 
-  // Play harmonic "cathedral reply"
   for (let i = 0; i < voicing.length; i++) {
     let n = voicing[i];
     while (n < 36) n += 12;
     while (n > 92) n -= 12;
 
     let f = midiToFreq(n);
-    let wave = (i === 0) ? "triangle" : (random() < 0.55 ? "sine" : "triangle");
-    playVoice(f * random(0.995, 1.006), baseAmp * random(0.55, 1.0), wave, 0.02, random(0.85, 1.65));
+    let wave = (i === 0) ? "sine" : (random() < 0.5 ? "triangle" : "sine");
+    playVoice(f * random(0.994, 1.006), baseAmp * random(0.55, 1.0), wave, 0.02, random(0.85, 1.4));
   }
 
-  // Build cathedral arches (extra beams)
-  for (let k = 0; k < floor(map(vel, 0, 127, 1, 4)); k++) {
+  for (let k = 0; k < floor(map(vel, 0, 127, 1, 3)); k++) {
     addRandomLink(true);
   }
 }
 
 function chooseVoicing(root, mood) {
-  if (mood === "calm") return [root, root + 4, root + 7, root + 11, root + 14]; // maj9
+  if (mood === "calm") return [root, root + 4, root + 7, root + 11, root + 14];        // maj9
   if (mood === "mystery") return [root, root + 3, root + 7, root + 10, root + 14, root + 17]; // m11
-  if (mood === "tension") return [root, root + 4, root + 10, root + 13, root + 15]; // alt-ish
-  if (mood === "joy") return [root, root + 4, root + 6, root + 7, root + 11, root + 14]; // lydian-ish
+  if (mood === "tension") return [root, root + 4, root + 10, root + 13, root + 15];     // altered cluster
+  if (mood === "joy") return [root, root + 4, root + 6, root + 7, root + 11, root + 14]; // lydian
   return [root, root + 3, root + 7, root + 10, root + 14]; // m9
 }
 
 function updateMood(freq, vel) {
-  if (millis() - lastMoodChange < 900) return;
+  if (millis() - lastMoodChange < 850) return;
 
   if (freq < 170 && vel < 60) mood = "calm";
   else if (freq < 250 && vel > 85) mood = "mystery";
-  else if (freq > 600 && vel > 90) mood = "joy";
+  else if (freq > 650 && vel > 95) mood = "joy";
   else if (vel > 112) mood = "tension";
   else mood = "expansion";
 
   lastMoodChange = millis();
 }
 
-// =====================================================
-// SOUND VOICE
-// =====================================================
+// ---------------- SOUND VOICE ----------------
 function playVoice(freq, amp, wave, attack, release) {
   if (voices.length > MAX_VOICES) {
     let old = voices.shift();
@@ -410,12 +327,12 @@ function playVoice(freq, amp, wave, attack, release) {
   osc.disconnect();
   osc.connect(filterLP);
 
-  osc.pan(random(-0.75, 0.75));
+  osc.pan(random(-0.65, 0.65));
   osc.freq(freq);
 
-  // brightness by frequency
-  let cutoff = map(freq, 80, 1200, 700, 2600);
-  filterLP.freq(constrain(cutoff, 400, 3400));
+  // brightness mapping
+  let cutoff = map(freq, 80, 1400, 900, 3200);
+  filterLP.freq(constrain(cutoff, 500, 3600));
 
   osc.amp(0);
   osc.start();
@@ -431,9 +348,7 @@ function playVoice(freq, amp, wave, attack, release) {
   voices.push({ osc });
 }
 
-// =====================================================
-// LINKS
-// =====================================================
+// ---------------- LINKS ----------------
 function addRandomLink(ai = false) {
   let a = random(cells);
   let b = random(cells);
@@ -447,99 +362,77 @@ function addLinkTo(cell) {
   links.push(new GlassLink(cell, target, false));
 }
 
-// =====================================================
-// PARTICLES
-// =====================================================
+// ---------------- PARTICLES ----------------
 function emitParticles(p, freq, amp) {
-  let count = floor(map(amp, 0.05, 0.22, 8, 28));
+  let count = floor(map(amp, 0.04, 0.20, 7, 22));
+
   for (let i = 0; i < count; i++) {
     particles.push({
       pos: p.copy(),
-      vel: p5.Vector.random3D().mult(random(0.8, 4.2)),
-      life: random(110, 230),
-      hue: map(freq, 80, 1400, 170, 350),
-      size: random(1.6, 5.0)
+      vel: p5.Vector.random3D().mult(random(0.6, 3.2)),
+      life: random(120, 240),
+      hue: (map(freq, 80, 1400, 180, 360) + random(-30, 30)) % 360,
+      size: random(1.8, 5.2)
     });
   }
-  if (particles.length > 1800) particles.splice(0, 260);
+
+  if (particles.length > MAX_PARTICLES) particles.splice(0, 200);
 }
 
-// =====================================================
-// DRAW
-// =====================================================
+// ---------------- DRAW ----------------
 function draw() {
-  background(0, 20);
+  // ✅ Strong visibility (avoid full black in mobile)
+  background(0, 35);
 
-  // If no MIDI, users still can orbit with mouse/touch
-  orbitControl();
+  // ✅ No orbitControl (breaks mobile gestures often)
+  // orbitControl();
 
-  rotateY(frameCount * (0.001 + globalEnergy * 0.002));
-  rotateX(frameCount * (0.0007 + globalEnergy * 0.0012));
+  rotateY(frameCount * (0.001 + globalEnergy * 0.0016));
+  rotateX(sin(frameCount * 0.001) * 0.08);
 
-  // cathedral lights (soft, not bleaching colors)
-  ambientLight(40);
-  directionalLight(140, 120, 140, -0.2, 1, -0.3);
-  pointLight(110, 160, 220, 220, 60, 520);
+  // ✅ Keep lights soft but not whitening faces
+  ambientLight(70);
+  directionalLight(120, 120, 120, -0.3, 0.6, -0.4);
 
-  // LINKS (cathedral arches)
+  // Links
   for (let l of links) {
     l.update();
     l.display();
   }
   links = links.filter(l => l.life > 0);
 
-  // CELLS (stained glass)
+  // Cells
   for (let c of cells) {
     c.update();
     c.display();
   }
   cells = cells.filter(c => c.life > 0);
 
-  // PARTICLES
+  // Particles
   for (let p of particles) {
     p.pos.add(p.vel);
-    p.life -= 2.8;
+    p.life -= 3.1;
+
     push();
     translate(p.pos.x, p.pos.y, p.pos.z);
-    fill(p.hue, 230, 255, p.life);
-    noStroke();
-    sphere(p.size);
+    fill(p.hue, 255, 255, p.life);
+    sphere(p.size, 7, 5);
     pop();
   }
   particles = particles.filter(p => p.life > 0);
 
   globalEnergy *= 0.985;
-
-  // Signature
-  push();
-  resetMatrix();
-  fill(255);
-  textAlign(CENTER);
-  textSize(14);
-  text("NeuroSynaptic Glass IV — Jazz Cathedral", 0, height / 2 - 56);
-  textSize(12);
-  text("Eduardo Romaguera · Durome · 2026", 0, height / 2 - 34);
-
-  textSize(11);
-  if (midiAvailable) {
-    text("MIDI Connected · Play your instrument", 0, height / 2 - 14);
-  } else {
-    text("No MIDI detected · Use keyboard letters or touch/click to play", 0, height / 2 - 14);
-  }
-  pop();
 }
 
-// =====================================================
-// GLASS CELL
-// =====================================================
+// ---------------- GLASS CELL ----------------
 class GlassCell {
   constructor(x, y, z) {
     this.pos = createVector(x, y, z);
 
     this.rot = createVector(random(TWO_PI), random(TWO_PI), random(TWO_PI));
-    this.rvel = createVector(random(0.002, 0.012), random(0.002, 0.012), random(0.002, 0.012));
+    this.rvel = createVector(random(0.0015, 0.010), random(0.0015, 0.010), random(0.0015, 0.010));
 
-    this.R = random(35, 95);
+    this.R = random(40, 105);
     this.r = this.R * random(0.35, 0.78);
     this.n = floor(random(5, 11));
     this.h = random(18, 62);
@@ -547,8 +440,8 @@ class GlassCell {
     this.kind = random(SHAPE_TYPES);
     this.form = random(FORMS);
 
-    this.hue = random(170, 340);
-    this.alpha = random(70, 150);
+    this.hue = random(180, 360);
+    this.alpha = random(90, 200);
 
     this.life = 255;
   }
@@ -556,10 +449,11 @@ class GlassCell {
   update() {
     this.rot.add(this.rvel);
 
+    // slow drift
     this.pos.x += sin(frameCount * 0.01 + this.pos.y * 0.002) * 0.06;
     this.pos.y += cos(frameCount * 0.012 + this.pos.x * 0.002) * 0.04;
 
-    this.life -= 0.22;
+    this.life -= 0.26;
   }
 
   display() {
@@ -569,17 +463,22 @@ class GlassCell {
     rotateY(this.rot.y);
     rotateZ(this.rot.z);
 
+    // ✅ saturated, NO white faces
     let a = map(this.life, 0, 255, 0, this.alpha);
 
-    // stained glass look (avoid white)
-    specularMaterial(this.hue, 230, 255, a);
-    shininess(120);
+    // Use emissive-style color feel
+    fill(this.hue, 255, 255, a);
+
+    // noStroke keeps it clean
+    noStroke();
+
+    // Outer
     this.renderForm(false);
 
+    // Inner core (glow)
     push();
     scale(0.68);
-    specularMaterial((this.hue + 28) % 360, 200, 255, a * 0.55);
-    shininess(140);
+    fill((this.hue + 24) % 360, 255, 255, a * 0.55);
     this.renderForm(true);
     pop();
 
@@ -588,22 +487,21 @@ class GlassCell {
 
   renderForm(inner) {
     if (this.form === "sphere") {
-      sphere(this.R * (inner ? 0.6 : 0.92));
-      edgeGlowSphere(this.R * (inner ? 0.62 : 0.94), inner);
+      sphere(this.R * (inner ? 0.55 : 0.92), 18, 12);
       return;
     }
 
     if (this.form === "cube") {
-      box(this.R * (inner ? 0.9 : 1.18));
-      edgeGlowCube(this.R * (inner ? 0.9 : 1.18), inner);
+      box(this.R * (inner ? 0.82 : 1.15));
       return;
     }
 
     if (this.form === "pyramid") {
-      cone(this.R * (inner ? 0.7 : 0.92), this.R * (inner ? 1.0 : 1.4));
+      cone(this.R * (inner ? 0.60 : 0.90), this.R * (inner ? 0.90 : 1.35), 10, 1);
       return;
     }
 
+    // Poly extrusion
     this.drawExtrudedPolygon(inner);
   }
 
@@ -626,14 +524,17 @@ class GlassCell {
     let z1 = +this.h / 2;
     let z2 = -this.h / 2;
 
+    // front
     beginShape();
     for (let p of pts) vertex(p.x, p.y, z1);
     endShape(CLOSE);
 
+    // back
     beginShape();
     for (let i = pts.length - 1; i >= 0; i--) vertex(pts[i].x, pts[i].y, z2);
     endShape(CLOSE);
 
+    // sides
     for (let i = 0; i < pts.length; i++) {
       let a = pts[i];
       let b = pts[(i + 1) % pts.length];
@@ -645,82 +546,51 @@ class GlassCell {
       vertex(a.x, a.y, z2);
       endShape(CLOSE);
     }
-
-    push();
-    noFill();
-    stroke(0, 0, 255, inner ? 55 : 115);
-    strokeWeight(inner ? 0.85 : 1.45);
-    beginShape();
-    for (let p of pts) vertex(p.x, p.y, z1);
-    endShape(CLOSE);
-    pop();
   }
 }
 
-// =====================================================
-// GLASS LINK
-// =====================================================
+// ---------------- GLASS LINK ----------------
 class GlassLink {
   constructor(a, b, ai = false) {
     this.a = a;
     this.b = b;
     this.life = random(180, 560);
-    this.hue = random(170, 340);
-    this.w = random(0.7, ai ? 4.2 : 2.8);
+    this.hue = random(180, 360);
+    this.w = random(0.8, ai ? 3.2 : 2.4);
     this.twist = random(0.004, 0.018);
     this.ai = ai;
   }
 
   update() {
-    this.life -= this.ai ? 0.75 : 0.55;
-    if (this.a.life < 12 || this.b.life < 12) this.life -= 1.5;
+    this.life -= this.ai ? 0.8 : 0.6;
+    if (this.a.life < 12 || this.b.life < 12) this.life -= 1.4;
   }
 
   display() {
     push();
-    let alpha = map(this.life, 0, 560, 0, this.ai ? 220 : 170);
-    stroke(this.hue, 210, 255, alpha);
+    let alpha = map(this.life, 0, 560, 0, this.ai ? 220 : 165);
+    stroke(this.hue, 255, 255, alpha);
     strokeWeight(this.w);
 
     let A = this.a.pos;
     let B = this.b.pos;
     let M = p5.Vector.add(A, B).mult(0.5);
 
-    M.x += sin(frameCount * this.twist) * (this.ai ? 32 : 18);
-    M.y += cos(frameCount * this.twist) * (this.ai ? 32 : 18);
-    M.z += sin(frameCount * this.twist * 0.6) * (this.ai ? 24 : 14);
+    M.x += sin(frameCount * this.twist) * (this.ai ? 26 : 14);
+    M.y += cos(frameCount * this.twist) * (this.ai ? 26 : 14);
+    M.z += sin(frameCount * this.twist * 0.6) * (this.ai ? 20 : 10);
 
+    noFill();
     beginShape();
     vertex(A.x, A.y, A.z);
     vertex(M.x, M.y, M.z);
     vertex(B.x, B.y, B.z);
     endShape();
-
     pop();
   }
 }
 
-// =====================================================
-// EDGE GLOW HELPERS
-// =====================================================
-function edgeGlowCube(size, inner) {
-  push();
-  noFill();
-  stroke(0, 0, 255, inner ? 45 : 95);
-  strokeWeight(inner ? 0.7 : 1.2);
-  box(size);
-  pop();
-}
-
-function edgeGlowSphere(size, inner) {
-  push();
-  noFill();
-  stroke(0, 0, 255, inner ? 35 : 80);
-  strokeWeight(inner ? 0.6 : 1.0);
-  sphere(size);
-  pop();
-}
-
+// ---------------- Resize ----------------
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
 }
