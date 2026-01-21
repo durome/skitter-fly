@@ -2,58 +2,88 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-
-  <title>NeuroSynaptic Glass IV — Jazz Cathedral · Eduardo Romaguera · 2026</title>
-  <meta name="description" content="A generative stained-glass cathedral system: polyhedra, neural links and AI jazz call-response, performed through MIDI or touch/keyboard. Eduardo Romaguera · Durome · 2026." />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>NeuroSynaptic Glass IV — Jazz Cathedral</title>
 
   <style>
-    html, body { margin:0; padding:0; height:100%; background:#000; overflow:hidden; }
-    canvas { display:block; }
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+      user-select: none;
+    }
 
-    #overlay{
-      position:fixed; inset:0;
-      display:flex; align-items:center; justify-content:center;
-      background:rgba(0,0,0,0.85);
-      color:#fff;
+    canvas { display: block; }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.92);
+      z-index: 1000;
       font-family: Helvetica, Arial, sans-serif;
-      text-align:center;
-      padding:24px;
-      z-index:10;
+      color: white;
+      text-align: center;
+      padding: 30px;
     }
-    #panel{
-      max-width:780px;
+
+    #overlay .box {
+      max-width: 820px;
+      padding: 22px 22px;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(6px);
     }
-    #startBtn{
-      margin-top:14px;
-      padding:12px 18px;
-      border:1px solid rgba(255,255,255,0.35);
-      background:rgba(255,255,255,0.08);
-      color:#fff;
-      cursor:pointer;
-      border-radius:10px;
-      font-size:14px;
-      letter-spacing:0.2px;
+
+    #title {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: 0.4px;
     }
-    #startBtn:hover{
-      background:rgba(255,255,255,0.14);
+
+    #hint {
+      margin-top: 10px;
+      font-size: 13px;
+      opacity: 0.85;
+      line-height: 1.4;
     }
-    #status{
-      margin-top:10px;
-      font-size:12px;
-      opacity:0.75;
+
+    #startBtn {
+      margin-top: 16px;
+      padding: 12px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.08);
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
     }
-    #footerSig{
-      position:fixed;
-      bottom:12px;
-      right:14px;
-      color:#fff;
-      opacity:0.65;
+
+    #startBtn:active {
+      transform: scale(0.98);
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    /* ✅ desaparece firma/textos al iniciar, solo estética */
+    #signature {
+      position: fixed;
+      right: 14px;
+      bottom: 10px;
+      color: rgba(255,255,255,0.35);
       font-family: Helvetica, Arial, sans-serif;
-      font-size:12px;
-      z-index:2;
-      pointer-events:none;
-      text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+      font-size: 11px;
+      z-index: 5;
+      pointer-events: none;
     }
   </style>
 
@@ -63,21 +93,19 @@
 
 <body>
   <div id="overlay">
-    <div id="panel">
-      <div style="font-size:18px; font-weight:600; letter-spacing:0.4px;">
-        NeuroSynaptic Glass IV — Jazz Cathedral
+    <div class="box">
+      <div id="title">NeuroSynaptic Glass IV — Jazz Cathedral</div>
+      <div id="hint">
+        Tap once to activate audio.<br/>
+        Multi-touch = chords · Drag = glide · Keyboard works if available.<br/>
+        MIDI will connect automatically if your device supports it.
       </div>
-      <div style="margin-top:10px; opacity:0.85; line-height:1.35;">
-        Touch with multiple fingers to play chords. Drag to bend/glide pitch.  
-        Keyboard also works (A–L / Q–P). MIDI is supported if available.
-      </div>
-
       <button id="startBtn">Start / Activate Audio</button>
       <div id="status">Waiting…</div>
     </div>
   </div>
 
-  <div id="footerSig">© Eduardo Romaguera · Durome · 2026</div>
+  <div id="signature">© Eduardo Romaguera · Durome · 2026</div>
 
   <script src="sketch.js"></script>
 </body>
